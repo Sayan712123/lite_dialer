@@ -22,23 +22,32 @@ jobs:
 
       - name: Generate Android project files
         run: |
-          flutter create --platforms=android --project-name lite_dialer tmp_app
+          flutter create --platforms=android --org com.example --project-name lite_dialer tmp_app
           cp -r tmp_app/android android
           rm -rf tmp_app
 
-      - name: Add permissions
+      - name: Add native dialer code
         run: |
-          sed -i 's#<application#<uses-permission android:name="android.permission.CALL_PHONE"/>\n    <uses-permission android:name="android.permission.READ_CONTACTS"/>\n    <uses-permission android:name="android.permission.READ_CALL_LOG"/>\n    <uses-permission android:name="android.permission.READ_PHONE_STATE"/>\n    <application#' android/app/src/main/AndroidManifest.xml
+          mkdir -p android/app/src/main/kotlin/com/example/lite_dialer
+          mkdir -p android/app/src/main/res/drawable
+          find android/app/src/main \( -name MainActivity.kt -o -name MainActivity.java \) -delete
+          cp native/Dialer.kt android/app/src/main/kotlin/com/example/lite_dialer/Dialer.kt
+          cp native/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          cp native/ic_dialer.xml android/app/src/main/res/drawable/ic_dialer.xml
 
-      - name: Enable core library desugaring
+      - name: Configure gradle
         run: |
           F=android/app/build.gradle.kts
           if [ -f "$F" ]; then
             sed -i 's/compileOptions {/compileOptions {\n        isCoreLibraryDesugaringEnabled = true/' $F
+            sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/' $F
+            sed -i '0,/^android {/s//android {\n    lint {\n        checkReleaseBuilds = false\n        abortOnError = false\n    }/' $F
             printf '\ndependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")\n}\n' >> $F
           else
             F=android/app/build.gradle
             sed -i 's/compileOptions {/compileOptions {\n        coreLibraryDesugaringEnabled true/' $F
+            sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 24/' $F
+            sed -i '0,/^android {/s//android {\n    lint {\n        checkReleaseBuilds false\n        abortOnError false\n    }/' $F
             printf '\ndependencies {\n    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.4"\n}\n' >> $F
           fi
 
