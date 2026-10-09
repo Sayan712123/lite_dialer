@@ -30,6 +30,18 @@ jobs:
         run: |
           sed -i 's#<application#<uses-permission android:name="android.permission.CALL_PHONE"/>\n    <uses-permission android:name="android.permission.READ_CONTACTS"/>\n    <uses-permission android:name="android.permission.READ_CALL_LOG"/>\n    <uses-permission android:name="android.permission.READ_PHONE_STATE"/>\n    <application#' android/app/src/main/AndroidManifest.xml
 
+      - name: Enable core library desugaring
+        run: |
+          F=android/app/build.gradle.kts
+          if [ -f "$F" ]; then
+            sed -i 's/compileOptions {/compileOptions {\n        isCoreLibraryDesugaringEnabled = true/' $F
+            printf '\ndependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")\n}\n' >> $F
+          else
+            F=android/app/build.gradle
+            sed -i 's/compileOptions {/compileOptions {\n        coreLibraryDesugaringEnabled true/' $F
+            printf '\ndependencies {\n    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.4"\n}\n' >> $F
+          fi
+
       - run: flutter pub get
 
       - run: flutter build apk --release --split-per-abi
