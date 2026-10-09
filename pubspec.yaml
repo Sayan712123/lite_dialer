@@ -1,7 +1,7 @@
 name: lite_dialer
-description: A HyperOS-style dialer with recents, contacts and a T9 keypad.
+description: A HyperOS-style phone app with its own call screens.
 publish_to: 'none'
-version: 2.0.0+2
+version: 3.0.0+3
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -9,7 +9,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_phone_direct_caller: ^2.1.1
   flutter_contacts: ^1.1.9
   call_log: ^5.0.0
   permission_handler: ^11.3.1
