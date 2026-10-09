@@ -26,9 +26,9 @@ jobs:
           cp -r tmp_app/android android
           rm -rf tmp_app
 
-      - name: Add call permission
+      - name: Add permissions
         run: |
-          sed -i 's#<application#<uses-permission android:name="android.permission.CALL_PHONE"/>\n    <application#' android/app/src/main/AndroidManifest.xml
+          sed -i 's#<application#<uses-permission android:name="android.permission.CALL_PHONE"/>\n    <uses-permission android:name="android.permission.READ_CONTACTS"/>\n    <uses-permission android:name="android.permission.READ_CALL_LOG"/>\n    <uses-permission android:name="android.permission.READ_PHONE_STATE"/>\n    <application#' android/app/src/main/AndroidManifest.xml
 
       - run: flutter pub get
 
