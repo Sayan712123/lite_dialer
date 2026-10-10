@@ -3,6 +3,7 @@
 package com.example.lite_dialer
 
 import android.app.Activity
+import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -24,10 +25,33 @@ import android.telecom.TelecomManager
 import android.telecom.VideoProfile
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterActivityLaunchConfigs
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+
+// ---------------------------------------------------------------
+// Lite mode: skips heavy extras (photos, blur) on low-end phones
+// ---------------------------------------------------------------
+object Lite {
+    private fun prefs(ctx: Context) =
+        ctx.getSharedPreferences("dialer", Context.MODE_PRIVATE)
+
+    fun auto(ctx: Context): Boolean {
+        val am = ctx.getSystemService(ActivityManager::class.java)
+        return am.isLowRamDevice || am.memoryClass <= 128
+    }
+
+    fun get(ctx: Context): Boolean {
+        val p = prefs(ctx)
+        return if (p.contains("lite")) p.getBoolean("lite", false) else auto(ctx)
+    }
+
+    fun set(ctx: Context, on: Boolean) {
+        prefs(ctx).edit().putBoolean("lite", on).apply()
+    }
+}
 
 // ---------------------------------------------------------------
 // Shared state for all calls
@@ -37,6 +61,7 @@ object CallHolder {
     var service: CallService? = null
     val listeners = mutableListOf<() -> Unit>()
     private val names = HashMap<String, String>()
+    private val photos = HashMap<String, ByteArray>()
     private val main = Handler(Looper.getMainLooper())
 
     fun changed() {
@@ -77,6 +102,37 @@ object CallHolder {
         return r
     }
 
+    fun photoFor(ctx: Context, number: String): ByteArray? {
+        if (number.isEmpty()) return null
+        photos[number]?.let { return it }
+        try {
+            val uri = Uri.withAppendedPath(
+                ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+                Uri.encode(number)
+            )
+            ctx.contentResolver.query(
+                uri,
+                arrayOf(ContactsContract.PhoneLookup.PHOTO_THUMBNAIL_URI),
+                null, null, null
+            )?.use { cur ->
+                if (cur.moveToFirst()) {
+                    val u = cur.getString(0)
+                    if (u != null) {
+                        ctx.contentResolver.openInputStream(Uri.parse(u))?.use { st ->
+                            val b = st.readBytes()
+                            if (b.isNotEmpty()) {
+                                photos[number] = b
+                                return b
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        }
+        return null
+    }
+
     fun stateName(s: Int): String = when (s) {
         Call.STATE_RINGING -> "ringing"
         Call.STATE_ACTIVE -> "active"
@@ -97,7 +153,8 @@ object CallHolder {
             "connectTime" to (c.details?.connectTimeMillis ?: 0L),
             "muted" to (audio?.isMuted ?: false),
             "speaker" to ((audio?.route ?: 0) == CallAudioState.ROUTE_SPEAKER),
-            "count" to calls.size
+            "count" to calls.size,
+            "photo" to (if (Lite.get(ctx)) null else photoFor(ctx, number))
         )
     }
 }
@@ -337,6 +394,13 @@ class Bridge(private val activity: Activity, messenger: BinaryMessenger) {
 
             "isDefault" -> result.success(tm.defaultDialerPackage == activity.packageName)
 
+            "isLite" -> result.success(Lite.get(activity))
+
+            "setLite" -> {
+                Lite.set(activity, m.argument<Boolean>("on") ?: false)
+                result.success(null)
+            }
+
             "requestDefault" -> {
                 try {
                     if (Build.VERSION.SDK_INT >= 29) {
@@ -402,6 +466,9 @@ class InCallActivity : FlutterActivity() {
 
     override fun getDartEntrypointFunctionName(): String = "inCallMain"
 
+    override fun getBackgroundMode(): FlutterActivityLaunchConfigs.BackgroundMode =
+        FlutterActivityLaunchConfigs.BackgroundMode.transparent
+
     override fun onCreate(savedInstanceState: Bundle?) {
         if (Build.VERSION.SDK_INT >= 27) {
             setShowWhenLocked(true)
@@ -414,6 +481,12 @@ class InCallActivity : FlutterActivity() {
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= 31 && !Lite.get(this)) {
+            try {
+                window.setBackgroundBlurRadius(110)
+            } catch (_: Exception) {
+            }
+        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
