@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
@@ -13,9 +15,10 @@ const kRed = Color(0xFFFF3B30);
 // ---------- helpers ----------
 
 class Person {
-  Person(this.name, this.number, this.fav);
+  Person(this.name, this.number, this.fav, [this.thumb]);
   final String name, number;
   final bool fav;
+  final Uint8List? thumb;
 }
 
 String toT9(String s) {
@@ -130,8 +133,9 @@ void showActions(BuildContext c, String title, String n) {
 }
 
 class Avatar extends StatelessWidget {
-  const Avatar(this.name, {super.key});
+  const Avatar(this.name, {this.photo, super.key});
   final String name;
+  final Uint8List? photo;
 
   @override
   Widget build(BuildContext context) {
@@ -139,16 +143,22 @@ class Avatar extends StatelessWidget {
       0xFF5B8DEF, 0xFF34C759, 0xFFFF9F0A, 0xFFAF52DE, 0xFFFF6B6B, 0xFF30B0C7,
     ];
     final c = Color(colors[name.codeUnits.fold(0, (a, b) => a + b) % colors.length]);
+    final has = photo != null && photo!.isNotEmpty;
     return CircleAvatar(
       radius: 22,
       backgroundColor: name.isEmpty ? const Color(0xFF2C3E63) : c,
-      child: name.isEmpty
-          ? const Icon(Icons.person, color: Colors.white)
-          : Text(
-              String.fromCharCode(name.runes.first).toUpperCase(),
-              style: const TextStyle(
-                  color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
-            ),
+      backgroundImage: has ? ResizeImage(MemoryImage(photo!), width: 96) : null,
+      child: has
+          ? null
+          : (name.isEmpty
+              ? const Icon(Icons.person, color: Colors.white)
+              : Text(
+                  String.fromCharCode(name.runes.first).toUpperCase(),
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600),
+                )),
     );
   }
 }
