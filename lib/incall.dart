@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -22,7 +23,10 @@ class InCallApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(brightness: Brightness.dark, useMaterial3: true),
+      theme: ThemeData(
+          brightness: Brightness.dark,
+          useMaterial3: true,
+          scaffoldBackgroundColor: Colors.transparent),
       home: const InCallPage(),
     );
   }
@@ -120,23 +124,40 @@ class _InCallPageState extends State<InCallPage> {
   Widget build(BuildContext context) {
     final ringing = _state == 'ringing';
     return Scaffold(
+      backgroundColor: Colors.transparent,
       body: Container(
-        decoration: BoxDecoration(
-          gradient: ringing
-              ? const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xFF7FA6D6), Color(0xFF3B5E8C), Color(0xFF14202F)],
-                )
-              : const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Color(0xFF2E5C8C), Color(0xFFB22A32), Color(0xFF1E7C8C)],
-                  stops: [0, 0.5, 1],
-                ),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0x44000000), Color(0x33000000), Color(0x88000000)],
+          ),
         ),
         child: SafeArea(child: ringing ? _incoming() : _ongoing()),
       ),
+    );
+  }
+
+  Widget _avatar(double r) {
+    const colors = [
+      0xFF5B8DEF, 0xFF34C759, 0xFFFF9F0A, 0xFFAF52DE, 0xFFFF6B6B, 0xFF30B0C7,
+    ];
+    final p = s['photo'];
+    final photo = (p is Uint8List && p.isNotEmpty) ? p : null;
+    final bg = _name.isEmpty
+        ? Colors.white24
+        : Color(colors[_name.codeUnits.fold(0, (a, b) => a + b) % colors.length]);
+    return CircleAvatar(
+      radius: r,
+      backgroundColor: bg,
+      backgroundImage:
+          photo != null ? ResizeImage(MemoryImage(photo), width: 300) : null,
+      child: photo != null
+          ? null
+          : (_name.isEmpty
+              ? Icon(Icons.person, size: r, color: Colors.white)
+              : Text(String.fromCharCode(_name.runes.first).toUpperCase(),
+                  style: TextStyle(fontSize: r * 0.85, color: Colors.white))),
     );
   }
 
@@ -146,16 +167,7 @@ class _InCallPageState extends State<InCallPage> {
     return Column(
       children: [
         const SizedBox(height: 56),
-        CircleAvatar(
-          radius: 46,
-          backgroundColor: Colors.white24,
-          child: _name.isEmpty
-              ? const Icon(Icons.person, size: 48, color: Colors.white)
-              : Text(
-                  String.fromCharCode(_name.runes.first).toUpperCase(),
-                  style: const TextStyle(fontSize: 38, color: Colors.white),
-                ),
-        ),
+        _avatar(46),
         const SizedBox(height: 18),
         Text(_title,
             textAlign: TextAlign.center,
@@ -188,18 +200,22 @@ class _InCallPageState extends State<InCallPage> {
             ),
           ),
         ),
-        const SizedBox(height: 44),
+        const SizedBox(height: 24),
+        const Text('Swipe up to answer',
+            style: TextStyle(color: Colors.white70)),
+        const SizedBox(height: 8),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 52),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               _circle(_red, Icons.call_end, () => _native('reject')),
-              _circle(_green, Icons.call, () => _native('answer')),
+              _SwipeAnswer(onAnswer: () => _native('answer')),
             ],
           ),
         ),
-        const SizedBox(height: 64),
+        const SizedBox(height: 44),
       ],
     );
   }
@@ -243,7 +259,9 @@ class _InCallPageState extends State<InCallPage> {
     final count = (s['count'] as num?)?.toInt() ?? 1;
     return Column(
       children: [
-        const SizedBox(height: 56),
+        const SizedBox(height: 20),
+        _avatar(34),
+        const SizedBox(height: 12),
         Text(_title,
             textAlign: TextAlign.center,
             style: const TextStyle(
@@ -426,6 +444,72 @@ class _InCallPageState extends State<InCallPage> {
               style: TextStyle(
                   fontSize: 12,
                   color: Colors.white.withOpacity(enabled ? 1 : 0.5))),
+        ],
+      ),
+    );
+  }
+}
+
+// Green handle: drag it up to answer the call.
+class _SwipeAnswer extends StatefulWidget {
+  const _SwipeAnswer({required this.onAnswer});
+  final VoidCallback onAnswer;
+
+  @override
+  State<_SwipeAnswer> createState() => _SwipeAnswerState();
+}
+
+class _SwipeAnswerState extends State<_SwipeAnswer> {
+  static const double _travel = 120;
+  double _dy = 0;
+  bool _done = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 76,
+      height: 76 + _travel,
+      child: Stack(
+        alignment: Alignment.bottomCenter,
+        children: [
+          Container(
+            width: 76,
+            height: 76 + _travel,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.18),
+              borderRadius: BorderRadius.circular(38),
+            ),
+            alignment: Alignment.topCenter,
+            padding: const EdgeInsets.only(top: 14),
+            child: const Icon(Icons.keyboard_double_arrow_up,
+                color: Colors.white70),
+          ),
+          Positioned(
+            bottom: 6 - _dy,
+            child: GestureDetector(
+              onVerticalDragUpdate: (d) {
+                if (_done) return;
+                setState(() =>
+                    _dy = (_dy + d.delta.dy).clamp(-_travel, 0.0).toDouble());
+              },
+              onVerticalDragEnd: (_) {
+                if (_done) return;
+                if (_dy <= -_travel * 0.7) {
+                  _done = true;
+                  widget.onAnswer();
+                } else {
+                  setState(() => _dy = 0);
+                }
+              },
+              child: Container(
+                width: 64,
+                height: 64,
+                decoration:
+                    const BoxDecoration(color: _green, shape: BoxShape.circle),
+                child: const Icon(Icons.call, color: Colors.white, size: 30),
+              ),
+            ),
+          ),
         ],
       ),
     );
