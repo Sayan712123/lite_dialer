@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:call_log/call_log.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -60,6 +62,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   List<Person> people = [];
   List<CallLogEntry> log = [];
   final Map<String, String> names = {};
+  final Map<String, Uint8List> photos = {};
   String q = '';
   bool loading = true;
   bool _busy = false;
@@ -67,6 +70,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   bool pad = false;
   String digits = '';
   bool isDefault = true;
+  bool lite = false;
 
   @override
   void initState() {
@@ -119,6 +123,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   Future<void> _load() async {
     if (_busy) return;
     _busy = true;
+    var liteNow = false;
+    try {
+      liteNow = await dialerChannel.invokeMethod<bool>('isLite') ?? false;
+    } catch (_) {}
     Map<Permission, PermissionStatus> r = {};
     try {
       r = await [Permission.phone, Permission.contacts, Permission.notification]
@@ -128,25 +136,31 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     var lg = <CallLogEntry>[];
     if (r[Permission.contacts]?.isGranted ?? false) {
       try {
-        final cs = await FlutterContacts.getContacts(withProperties: true);
+        final cs = await FlutterContacts.getContacts(
+            withProperties: true, withThumbnail: !liteNow);
         for (final c in cs) {
           for (final p in c.phones) {
-            ps.add(Person(c.displayName, p.number, c.isStarred));
+            final th = c.thumbnail;
+            final has = th != null && th.isNotEmpty;
+            ps.add(Person(c.displayName, p.number, c.isStarred, has ? th : null));
           }
         }
         ps.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
       } catch (_) {}
     }
     try {
-      lg = (await CallLog.get()).take(300).toList();
+      lg = (await CallLog.get()).take(liteNow ? 100 : 300).toList();
     } catch (_) {}
     names.clear();
+    photos.clear();
     for (final p in ps) {
       names[keyOf(p.number)] = p.name;
+      if (p.thumb != null) photos[keyOf(p.number)] = p.thumb!;
     }
     _busy = false;
     if (!mounted) return;
     setState(() {
+      lite = liteNow;
       people = ps;
       log = lg;
       loading = false;
@@ -169,13 +183,22 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
               ),
             ),
             PopupMenuButton<String>(
-              onSelected: (v) {
+              onSelected: (v) async {
                 if (v == 'default') dialerChannel.invokeMethod('requestDefault');
                 if (v == 'refresh') _load();
+                if (v == 'lite') {
+                  await dialerChannel.invokeMethod('setLite', {'on': !lite});
+                  _load();
+                }
               },
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'default', child: Text('Set as default phone app')),
-                PopupMenuItem(value: 'refresh', child: Text('Refresh')),
+              itemBuilder: (_) => [
+                const PopupMenuItem(
+                    value: 'default', child: Text('Set as default phone app')),
+                const PopupMenuItem(value: 'refresh', child: Text('Refresh')),
+                PopupMenuItem(
+                  value: 'lite',
+                  child: Text(lite ? 'Lite mode: ON' : 'Lite mode: OFF'),
+                ),
               ],
             ),
           ],
@@ -256,7 +279,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
             ? Icons.call_made
             : (bad ? Icons.call_missed : Icons.call_received);
         return ListTile(
-          leading: Avatar(nm),
+          leading: Avatar(nm, photo: photos[keyOf(n)]),
           title: Text(
             nm.isEmpty ? (n.isEmpty ? 'Unknown' : n) : nm,
             maxLines: 1,
@@ -319,7 +342,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         }
         final p = r as Person;
         return ListTile(
-          leading: Avatar(p.name),
+          leading: Avatar(p.name, photo: p.thumb),
           title: Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis),
           subtitle: Text(p.number),
           trailing: IconButton(
@@ -373,7 +396,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           for (final p in sugg)
             ListTile(
               dense: true,
-              leading: Avatar(p.name),
+              leading: Avatar(p.name, photo: p.thumb),
               title: Text(p.name),
               subtitle: Text(p.number),
               onTap: () => placeCall(context, p.number),
@@ -520,6 +543,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                 ),
               ],
             ),
+            if (pad)
+              Positioned.fill(
+                child: GestureDetector(
+                  onTap: () => setState(() => pad = false),
+                  child: ColoredBox(
+                    color: Theme.of(context).scaffoldBackgroundColor,
+                  ),
+                ),
+              ),
             Positioned(
               left: 0,
               right: 0,
