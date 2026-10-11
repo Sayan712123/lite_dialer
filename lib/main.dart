@@ -355,6 +355,14 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     );
   }
 
+  Future<void> _paste() async {
+    final d = await Clipboard.getData(Clipboard.kTextPlain);
+    final t = (d?.text ?? '').replaceAll(RegExp(r'[^0-9+*#]'), '');
+    if (t.isEmpty || !mounted) return;
+    final all = digits + t;
+    setState(() => digits = all.length > 20 ? all.substring(0, 20) : all);
+  }
+
   Widget _key(List<String> k) {
     return InkResponse(
       onTap: () {
@@ -403,12 +411,29 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
             ),
           SizedBox(
             height: 46,
-            child: Center(
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(digits.isEmpty ? ' ' : digits,
-                    style: const TextStyle(fontSize: 30, letterSpacing: 2)),
-              ),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.content_paste, size: 22),
+                  tooltip: 'Paste',
+                  onPressed: _paste,
+                ),
+                Expanded(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onLongPress: _paste,
+                    child: Center(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(digits.isEmpty ? ' ' : digits,
+                            style: const TextStyle(
+                                fontSize: 30, letterSpacing: 2)),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 48),
+              ],
             ),
           ),
           for (final row in _rows)
@@ -472,7 +497,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       final sel = tab == i;
       return Expanded(
         child: GestureDetector(
-          onTap: () => setState(() => tab = i),
+          onTap: () => setState(() {
+            tab = i;
+            pad = false;
+          }),
           child: Container(
             height: 56,
             decoration: BoxDecoration(
