@@ -8,7 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'incall.dart';
 
-const kBlue = Color(0xFF0D84FF);
+const kBlue = Color(0xFF007AFF);
 const kGreen = Color(0xFF34C759);
 const kRed = Color(0xFFFF3B30);
 
@@ -133,9 +133,10 @@ void showActions(BuildContext c, String title, String n) {
 }
 
 class Avatar extends StatelessWidget {
-  const Avatar(this.name, {this.photo, super.key});
+  const Avatar(this.name, {this.photo, this.radius = 22, super.key});
   final String name;
   final Uint8List? photo;
+  final double radius;
 
   @override
   Widget build(BuildContext context) {
@@ -145,20 +146,27 @@ class Avatar extends StatelessWidget {
     final c = Color(colors[name.codeUnits.fold(0, (a, b) => a + b) % colors.length]);
     final has = photo != null && photo!.isNotEmpty;
     return CircleAvatar(
-      radius: 22,
+      radius: radius,
       backgroundColor: name.isEmpty ? const Color(0xFF2C3E63) : c,
-      backgroundImage: has ? ResizeImage(MemoryImage(photo!), width: 96) : null,
+      backgroundImage: has
+          ? ResizeImage(MemoryImage(photo!), width: (radius * 4).round())
+          : null,
       child: has
           ? null
           : (name.isEmpty
-              ? const Icon(Icons.person, color: Colors.white)
+              ? Icon(Icons.person, color: Colors.white, size: radius)
               : Text(
                   String.fromCharCode(name.runes.first).toUpperCase(),
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: Colors.white,
-                      fontSize: 18,
+                      fontSize: radius * 0.82,
                       fontWeight: FontWeight.w600),
                 )),
     );
   }
 }
+
+// Soft gray used for pills and keypad circles (iOS style).
+Color fillColor(BuildContext c) => Theme.of(c).brightness == Brightness.dark
+    ? const Color(0xFF2C2C2E)
+    : const Color(0xFFE5E5EA);
