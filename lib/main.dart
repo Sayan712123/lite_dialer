@@ -6,6 +6,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'contacts_app.dart';
+import 'contacts_ui.dart';
+import 'dialer_ui.dart';
 import 'helpers.dart';
 import 'incall.dart';
 
@@ -18,13 +21,14 @@ void inCallMain() => runApp(const InCallApp());
 class App extends StatelessWidget {
   const App({super.key});
 
+  // iOS-style colors: grouped gray background, white cards, system blue.
   ThemeData _theme(Brightness b) {
     final dark = b == Brightness.dark;
     return ThemeData(
       useMaterial3: true,
       brightness: b,
       colorSchemeSeed: kBlue,
-      scaffoldBackgroundColor: dark ? Colors.black : const Color(0xFFF4F5F7),
+      scaffoldBackgroundColor: dark ? Colors.black : const Color(0xFFF2F2F7),
       cardColor: dark ? const Color(0xFF1C1C1E) : Colors.white,
       splashFactory: NoSplash.splashFactory,
     );
@@ -42,8 +46,6 @@ class App extends StatelessWidget {
   }
 }
 
-// ---------- home ----------
-
 class Home extends StatefulWidget {
   const Home({super.key});
 
@@ -52,13 +54,6 @@ class Home extends StatefulWidget {
 }
 
 class _HomeState extends State<Home> with WidgetsBindingObserver {
-  static const _rows = [
-    [['1', ''], ['2', 'ABC'], ['3', 'DEF']],
-    [['4', 'GHI'], ['5', 'JKL'], ['6', 'MNO']],
-    [['7', 'PQRS'], ['8', 'TUV'], ['9', 'WXYZ']],
-    [['*', ''], ['0', '+'], ['#', '']],
-  ];
-
   List<Person> people = [];
   List<CallLogEntry> log = [];
   final Map<String, String> names = {};
@@ -67,20 +62,30 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   bool loading = true;
   bool _busy = false;
   int tab = 0;
-  bool pad = false;
+  bool dialer = false;
+  bool searching = false;
   String digits = '';
   bool isDefault = true;
   bool lite = false;
+  List<Contact> contacts = [];
+  String mode = 'phone';
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     dialerChannel.setMethodCallHandler((c) async {
+      if (c.method == 'page' && mounted) {
+        setState(() {
+          mode = (c.arguments as String?) ?? 'phone';
+          dialer = false;
+          searching = false;
+        });
+      }
       if (c.method == 'dial' && mounted) {
         setState(() {
           digits = (c.arguments as String?) ?? '';
-          pad = true;
+          dialer = true;
         });
       }
     });
@@ -103,10 +108,14 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
 
   Future<void> _init() async {
     try {
+      final pg = await dialerChannel.invokeMethod<String>('initialPage');
+      if (pg != null) mode = pg;
+    } catch (_) {}
+    try {
       final n = await dialerChannel.invokeMethod<String>('initialNumber');
       if (n != null && n.isNotEmpty) {
         digits = n;
-        pad = true;
+        dialer = true;
       }
     } catch (_) {}
     await _load();
@@ -133,10 +142,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           .request();
     } catch (_) {}
     final ps = <Person>[];
+    var cs = <Contact>[];
     var lg = <CallLogEntry>[];
     if (r[Permission.contacts]?.isGranted ?? false) {
       try {
-        final cs = await FlutterContacts.getContacts(
+        cs = await FlutterContacts.getContacts(
             withProperties: true, withThumbnail: !liteNow);
         for (final c in cs) {
           for (final p in c.phones) {
@@ -161,198 +171,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     if (!mounted) return;
     setState(() {
       lite = liteNow;
+      contacts = cs;
       people = ps;
       log = lg;
       loading = false;
     });
-  }
-
-  // ----- pieces -----
-
-  Widget _header() => Padding(
-        padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
-        child: Row(
-          children: [
-            const SizedBox(width: 48),
-            Expanded(
-              child: Center(
-                child: Text(
-                  tab == 0 ? 'Recents' : 'Contacts',
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
-                ),
-              ),
-            ),
-            PopupMenuButton<String>(
-              onSelected: (v) async {
-                if (v == 'default') dialerChannel.invokeMethod('requestDefault');
-                if (v == 'refresh') _load();
-                if (v == 'lite') {
-                  await dialerChannel.invokeMethod('setLite', {'on': !lite});
-                  _load();
-                }
-              },
-              itemBuilder: (_) => [
-                const PopupMenuItem(
-                    value: 'default', child: Text('Set as default phone app')),
-                const PopupMenuItem(value: 'refresh', child: Text('Refresh')),
-                PopupMenuItem(
-                  value: 'lite',
-                  child: Text(lite ? 'Lite mode: ON' : 'Lite mode: OFF'),
-                ),
-              ],
-            ),
-          ],
-        ),
-      );
-
-  Widget _search() => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: TextField(
-          onChanged: (v) => setState(() => q = v.trim()),
-          decoration: InputDecoration(
-            hintText: 'Search contacts',
-            prefixIcon: const Icon(Icons.search),
-            filled: true,
-            fillColor: Theme.of(context).cardColor,
-            contentPadding: EdgeInsets.zero,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(28),
-              borderSide: BorderSide.none,
-            ),
-          ),
-        ),
-      );
-
-  Widget _banner() => Container(
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Row(
-          children: [
-            const Expanded(child: Text('Use this as your default phone app')),
-            TextButton(
-              onPressed: () => dialerChannel.invokeMethod('requestDefault'),
-              child: const Text('Set'),
-            ),
-          ],
-        ),
-      );
-
-  Widget _empty() => Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Nothing here'),
-            TextButton(
-              onPressed: openAppSettings,
-              child: const Text('Check permissions'),
-            ),
-          ],
-        ),
-      );
-
-  EdgeInsets get _listPad => EdgeInsets.only(
-      bottom: pad ? MediaQuery.of(context).size.height * 0.62 : 110);
-
-  Widget _recents() {
-    final items = log.where((e) {
-      final n = e.number ?? '';
-      final nm = (e.name?.isNotEmpty ?? false) ? e.name! : (names[keyOf(n)] ?? '');
-      return matches(nm, n, q);
-    }).toList();
-    if (items.isEmpty) return _empty();
-    return ListView.builder(
-      padding: _listPad,
-      itemCount: items.length,
-      itemBuilder: (_, i) {
-        final e = items[i];
-        final n = e.number ?? '';
-        final nm = (e.name?.isNotEmpty ?? false) ? e.name! : (names[keyOf(n)] ?? '');
-        final t = e.callType;
-        final bad = t == CallType.missed ||
-            t == CallType.rejected ||
-            t == CallType.blocked;
-        final icon = t == CallType.outgoing
-            ? Icons.call_made
-            : (bad ? Icons.call_missed : Icons.call_received);
-        return ListTile(
-          leading: Avatar(nm, photo: photos[keyOf(n)]),
-          title: Text(
-            nm.isEmpty ? (n.isEmpty ? 'Unknown' : n) : nm,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: bad ? kRed : null, fontWeight: FontWeight.w500),
-          ),
-          subtitle: Row(children: [
-            Icon(icon, size: 14, color: bad ? kRed : Colors.grey),
-            const SizedBox(width: 4),
-            Expanded(
-              child: Text(
-                nm.isEmpty ? fmtTime(e.timestamp) : '$n  ${fmtTime(e.timestamp)}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ]),
-          trailing: IconButton(
-            icon: const Icon(Icons.info_outline),
-            onPressed: () => showActions(context, nm, n),
-          ),
-          onTap: () => placeCall(context, n),
-          onLongPress: () => showActions(context, nm, n),
-        );
-      },
-    );
-  }
-
-  Widget _contacts() {
-    final list = people.where((p) => matches(p.name, p.number, q)).toList();
-    if (list.isEmpty) return _empty();
-    final rows = <Object>[];
-    final favs = list.where((p) => p.fav).toList();
-    if (favs.isNotEmpty) {
-      rows.add('★ Favorites');
-      rows.addAll(favs);
-    }
-    String last = '';
-    for (final p in list) {
-      final l = p.name.isEmpty
-          ? '#'
-          : String.fromCharCode(p.name.runes.first).toUpperCase();
-      if (l != last) {
-        rows.add(l);
-        last = l;
-      }
-      rows.add(p);
-    }
-    return ListView.builder(
-      padding: _listPad,
-      itemCount: rows.length,
-      itemBuilder: (_, i) {
-        final r = rows[i];
-        if (r is String) {
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(24, 12, 24, 4),
-            child: Text(r,
-                style: const TextStyle(color: kBlue, fontWeight: FontWeight.w600)),
-          );
-        }
-        final p = r as Person;
-        return ListTile(
-          leading: Avatar(p.name, photo: p.thumb),
-          title: Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-          subtitle: Text(p.number),
-          trailing: IconButton(
-            icon: const Icon(Icons.call, color: kGreen),
-            onPressed: () => placeCall(context, p.number),
-          ),
-          onTap: () => showActions(context, p.name, p.number),
-        );
-      },
-    );
   }
 
   Future<void> _paste() async {
@@ -363,233 +186,101 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     setState(() => digits = all.length > 20 ? all.substring(0, 20) : all);
   }
 
-  Widget _key(List<String> k) {
-    return InkResponse(
-      onTap: () {
-        if (digits.length >= 20) return;
-        HapticFeedback.selectionClick();
-        setState(() => digits += k[0]);
-      },
-      onLongPress: k[0] == '0' ? () => setState(() => digits += '+') : null,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(k[0],
-              style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w400)),
-          Text(k[1], style: const TextStyle(fontSize: 9, color: Colors.grey)),
-        ],
-      ),
-    );
-  }
-
-  Widget _keypad() {
-    final sugg = digits.isEmpty
-        ? <Person>[]
-        : people
-            .where((p) =>
-                p.number.replaceAll(RegExp(r'\D'), '').contains(digits) ||
-                toT9(p.name).contains(digits))
-            .take(2)
-            .toList();
-    return Container(
-      margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-      padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(32),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final p in sugg)
-            ListTile(
-              dense: true,
-              leading: Avatar(p.name, photo: p.thumb),
-              title: Text(p.name),
-              subtitle: Text(p.number),
-              onTap: () => placeCall(context, p.number),
-            ),
-          SizedBox(
-            height: 46,
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.content_paste, size: 22),
-                  tooltip: 'Paste',
-                  onPressed: _paste,
-                ),
-                Expanded(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onLongPress: _paste,
-                    child: Center(
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(digits.isEmpty ? ' ' : digits,
-                            style: const TextStyle(
-                                fontSize: 30, letterSpacing: 2)),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 48),
-              ],
-            ),
-          ),
-          for (final row in _rows)
-            SizedBox(
-              height: 60,
-              child: Row(children: [
-                for (final k in row) Expanded(child: _key(k)),
-              ]),
-            ),
-          SizedBox(
-            height: 76,
-            child: Row(
-              children: [
-                Expanded(
-                  child: Center(
-                    child: IconButton(
-                      icon: const Icon(Icons.keyboard_arrow_down, size: 30),
-                      onPressed: () => setState(() => pad = false),
-                    ),
-                  ),
-                ),
-                GestureDetector(
-                  onTap: () async {
-                    final ok = await placeCall(context, digits);
-                    if (ok && mounted) setState(() => digits = '');
-                  },
-                  child: Container(
-                    width: 66,
-                    height: 66,
-                    decoration: const BoxDecoration(
-                        color: kGreen, shape: BoxShape.circle),
-                    child: const Icon(Icons.call, color: Colors.white, size: 30),
-                  ),
-                ),
-                Expanded(
-                  child: GestureDetector(
-                    onLongPress: () => setState(() => digits = ''),
-                    child: IconButton(
-                      icon: const Icon(Icons.backspace_outlined),
-                      onPressed: () {
-                        if (digits.isNotEmpty) {
-                          setState(() =>
-                              digits = digits.substring(0, digits.length - 1));
-                        }
-                      },
-                    ),
-                  ),
-                ),
-              ],
-            ),
+  Widget _menu(IconData ic, {bool phone = true}) => PopupMenuButton<String>(
+        icon: Icon(ic),
+        onSelected: (v) async {
+          if (v == 'default') dialerChannel.invokeMethod('requestDefault');
+          if (v == 'refresh') _load();
+          if (v == 'lite') {
+            await dialerChannel.invokeMethod('setLite', {'on': !lite});
+            _load();
+          }
+        },
+        itemBuilder: (_) => [
+          if (phone)
+            const PopupMenuItem(
+                value: 'default', child: Text('Set as default phone app')),
+          const PopupMenuItem(value: 'refresh', child: Text('Refresh')),
+          PopupMenuItem(
+            value: 'lite',
+            child: Text(lite ? 'Lite mode: ON' : 'Lite mode: OFF'),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _nav() {
-    final cs = Theme.of(context).colorScheme;
-    final card = Theme.of(context).cardColor;
-    Widget item(int i, IconData ic, String label) {
-      final sel = tab == i;
-      return Expanded(
-        child: GestureDetector(
-          onTap: () => setState(() {
-            tab = i;
-            pad = false;
-          }),
-          child: Container(
-            height: 56,
-            decoration: BoxDecoration(
-              color: sel ? cs.primary.withOpacity(0.18) : Colors.transparent,
-              borderRadius: BorderRadius.circular(28),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(ic, size: 22, color: sel ? cs.primary : Colors.grey),
-                Text(label,
-                    style: TextStyle(
-                        fontSize: 11, color: sel ? cs.primary : Colors.grey)),
-              ],
-            ),
-          ),
-        ),
       );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: card,
-                borderRadius: BorderRadius.circular(32),
-              ),
-              child: Row(children: [
-                item(0, Icons.call, 'Recents'),
-                item(1, Icons.contacts, 'Contacts'),
-              ]),
-            ),
-          ),
-          const SizedBox(width: 12),
-          GestureDetector(
-            onTap: () => setState(() => pad = !pad),
-            child: Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(color: card, shape: BoxShape.circle),
-              child: Icon(Icons.dialpad, color: pad ? cs.primary : null),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: Stack(
-          children: [
-            Column(
-              children: [
-                _header(),
-                _search(),
-                if (!isDefault && tab == 0) _banner(),
-                Expanded(
-                  child: loading
-                      ? const Center(child: CircularProgressIndicator())
-                      : (tab == 0 ? _recents() : _contacts()),
+    return PopScope(
+      canPop: !dialer && !searching,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        setState(() {
+          if (dialer) {
+            dialer = false;
+          } else {
+            searching = false;
+            q = '';
+          }
+        });
+      },
+      child: Scaffold(
+        body: SafeArea(
+          child: mode == 'contacts'
+              ? ContactsAppPage(
+                  contacts: contacts,
+                  loading: loading,
+                  menu: _menu(Icons.more_vert_rounded, phone: false),
+                  onChanged: _load,
+                )
+              : dialer
+              ? DialerPage(
+                  digits: digits,
+                  people: people,
+                  menu: _menu(Icons.more_vert_rounded),
+                  onBack: () => setState(() => dialer = false),
+                  onDigit: (d) {
+                    if (digits.length >= 20) return;
+                    HapticFeedback.selectionClick();
+                    setState(() => digits += d);
+                  },
+                  onBackspace: () {
+                    if (digits.isNotEmpty) {
+                      setState(() =>
+                          digits = digits.substring(0, digits.length - 1));
+                    }
+                  },
+                  onClear: () => setState(() => digits = ''),
+                  onPaste: _paste,
+                  onCall: () async {
+                    final ok = await placeCall(context, digits);
+                    if (ok && mounted) setState(() => digits = '');
+                  },
+                  onCallNumber: (n) => placeCall(context, n),
+                )
+              : ContactsHome(
+                  tab: tab,
+                  searching: searching,
+                  loading: loading,
+                  isDefault: isDefault,
+                  q: q,
+                  people: people,
+                  log: log,
+                  names: names,
+                  photos: photos,
+                  menu: _menu(Icons.menu_rounded),
+                  onTab: (i) => setState(() {
+                    tab = i;
+                    searching = false;
+                    q = '';
+                  }),
+                  onSearching: (v) => setState(() {
+                    searching = v;
+                    if (!v) q = '';
+                  }),
+                  onQuery: (v) => setState(() => q = v.trim()),
+                  onDialer: () => setState(() => dialer = true),
+                  onSetDefault: () => dialerChannel.invokeMethod('requestDefault'),
                 ),
-              ],
-            ),
-            if (pad)
-              Positioned.fill(
-                child: GestureDetector(
-                  onTap: () => setState(() => pad = false),
-                  child: ColoredBox(
-                    color: Theme.of(context).scaffoldBackgroundColor,
-                  ),
-                ),
-              ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [if (pad) _keypad(), _nav()],
-              ),
-            ),
-          ],
         ),
       ),
     );
