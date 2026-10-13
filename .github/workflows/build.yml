@@ -34,6 +34,7 @@ jobs:
           cp native/Dialer.kt android/app/src/main/kotlin/com/example/lite_dialer/Dialer.kt
           cp native/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
           cp native/ic_dialer.xml android/app/src/main/res/drawable/ic_dialer.xml
+          cp native/ic_contacts.xml android/app/src/main/res/drawable/ic_contacts.xml
           mkdir -p android/app/src/main/res/values
           cp native/call_theme.xml android/app/src/main/res/values/call_theme.xml
 
@@ -60,4 +61,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: lite-dialer-apk
-          path: build/app/outputs/flutter-apk/*.apk
+          path: buil
