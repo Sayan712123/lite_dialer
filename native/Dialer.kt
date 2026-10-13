@@ -281,6 +281,16 @@ class CallActionReceiver : BroadcastReceiver() {
     }
 }
 
+// Which home-screen icon opened the app (Phone / Contacts)?
+fun pageOf(i: Intent?): String {
+    val n = i?.component?.className ?: ""
+    return when {
+        n.endsWith("ContactsAlias") -> "contacts"
+        n.endsWith("MessagesAlias") -> "messages"
+        else -> "phone"
+    }
+}
+
 // ---------------------------------------------------------------
 // Bridge between Flutter (Dart) and Android calls
 // ---------------------------------------------------------------
@@ -302,6 +312,10 @@ class Bridge(private val activity: Activity, messenger: BinaryMessenger) {
 
     fun dial(number: String) {
         channel.invokeMethod("dial", number)
+    }
+
+    fun page(p: String) {
+        channel.invokeMethod("page", p)
     }
 
     private fun handle(m: MethodCall, result: MethodChannel.Result) {
@@ -428,6 +442,8 @@ class Bridge(private val activity: Activity, messenger: BinaryMessenger) {
 
             "initialNumber" -> result.success(activity.intent?.data?.schemeSpecificPart)
 
+            "initialPage" -> result.success(pageOf(activity.intent))
+
             "finish" -> {
                 activity.finish()
                 result.success(null)
@@ -452,6 +468,7 @@ class MainActivity : FlutterActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        bridge?.page(pageOf(intent))
         intent.data?.schemeSpecificPart?.let { bridge?.dial(it) }
     }
 
